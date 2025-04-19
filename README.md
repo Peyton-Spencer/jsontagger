@@ -1,4 +1,4 @@
-# GoJsonTagger
+# Go JSON Tagger
 
 A simple CLI tool to transform JSON struct tags in Go files between snake_case and camelCase formats. This tool uses the [caseconv](https://github.com/peyton-spencer/caseconv) package for case conversion.
 
