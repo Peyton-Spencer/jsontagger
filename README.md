@@ -6,13 +6,23 @@ A simple CLI tool to transform JSON struct tags in Go files between snake_case a
 
 ```bash
 # Convert JSON tags to camelCase (default)
-gojsontagger -file path/to/your/file.go
+jsontagger -file path/to/your/file.go
 
 # Convert JSON tags to snake_case
-gojsontagger -file path/to/your/file.go -snake
+jsontagger -file path/to/your/file.go -snake
 
 # Explicitly specify camelCase (same as default)
-gojsontagger -file path/to/your/file.go -camel
+jsontagger -file path/to/your/file.go -camel
+```
+
+## Go Tool
+use in your project
+```
+go get -tool github.com/peyton-spencer/jsontagger
+```
+
+```
+go tool jsontagger -file path/to/your/file.go
 ```
 
 ## Examples
