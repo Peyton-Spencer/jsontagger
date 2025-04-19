@@ -26,6 +26,21 @@ func main() {
 	flag.StringVar(&config.Filename, "file", "", "Go file to process")
 	flag.BoolVar(&config.UseSnake, "snake", false, "Convert JSON tags to snake_case")
 	flag.BoolVar(&config.UseCamel, "camel", false, "Convert JSON tags to camelCase (default)")
+	
+	// Add usage information
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "JSonTagger: A tool for managing JSON tags in Go struct fields\n\n")
+		fmt.Fprintf(os.Stderr, "Usage:\n")
+		fmt.Fprintf(os.Stderr, "  jsontagger -file path/to/file.go [options]\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nFeatures:\n")
+		fmt.Fprintf(os.Stderr, "  - Converts existing JSON tags between snake_case and camelCase\n")
+		fmt.Fprintf(os.Stderr, "  - Generates new JSON tags for fields without them\n")
+		fmt.Fprintf(os.Stderr, "  - Preserves tag options like 'omitempty'\n")
+		fmt.Fprintf(os.Stderr, "  - Works with fields that have other non-JSON tags\n")
+	}
+	
 	flag.Parse()
 	
 	if config.Filename == "" {
@@ -59,6 +74,7 @@ func processFile(config Config) error {
 	}
 	
 	modified := false
+	jsonTagRegex := regexp.MustCompile(`json:"([^"]+)"`)
 	
 	// Walk the AST to find struct types
 	ast.Inspect(node, func(n ast.Node) bool {
@@ -74,39 +90,71 @@ func processFile(config Config) error {
 		
 		// Process struct fields
 		for _, field := range structType.Fields.List {
-			if field.Tag == nil {
+			// Skip fields without names (embedded types)
+			if len(field.Names) == 0 {
 				continue
 			}
 			
+			fieldName := field.Names[0].Name
+			
+			// Case 1: Field has no tag - add a new JSON tag
+			if field.Tag == nil {
+				var newFieldName string
+				if config.UseSnake {
+					newFieldName = strcase.ToSnake(fieldName)
+				} else {
+					newFieldName = strcase.ToLowerCamel(fieldName)
+				}
+				
+				// Create a new tag with just the JSON part
+				field.Tag = &ast.BasicLit{
+					Kind:  token.STRING,
+					Value: fmt.Sprintf("`json:\"%s\"`", newFieldName),
+				}
+				modified = true
+				continue
+			}
+			
+			// Case 2: Field has a tag - check if it contains a JSON part
 			tag := field.Tag.Value
-			// Remove backticks and get the raw tag string
 			tagStr := strings.Trim(tag, "`")
 			
-			// Match JSON tags specifically
-			re := regexp.MustCompile(`json:"([^"]+)"`)
-			matches := re.FindStringSubmatch(tagStr)
+			matches := jsonTagRegex.FindStringSubmatch(tagStr)
+			
+			// If no JSON tag is present, add one
 			if len(matches) < 2 {
+				var newFieldName string
+				if config.UseSnake {
+					newFieldName = strcase.ToSnake(fieldName)
+				} else {
+					newFieldName = strcase.ToLowerCamel(fieldName)
+				}
+				
+				// Add JSON tag to existing tags
+				newTagStr := tagStr + fmt.Sprintf(` json:"%s"`, newFieldName)
+				field.Tag.Value = "`" + newTagStr + "`"
+				modified = true
 				continue
 			}
 			
-			// Get the current JSON tag value
+			// Case 3: JSON tag exists - modify it as before
 			jsonTag := matches[1]
 			
 			// Split off any options like ,omitempty
 			parts := strings.Split(jsonTag, ",")
-			fieldName := parts[0]
+			existingFieldName := parts[0]
 			options := parts[1:]
 			
 			// Transform the field name according to config
 			var newFieldName string
 			if config.UseSnake {
-				newFieldName = strcase.ToSnake(fieldName)
+				newFieldName = strcase.ToSnake(existingFieldName)
 			} else {
-				newFieldName = strcase.ToLowerCamel(fieldName)
+				newFieldName = strcase.ToLowerCamel(existingFieldName)
 			}
 			
 			// No change needed
-			if newFieldName == fieldName {
+			if newFieldName == existingFieldName {
 				continue
 			}
 			
@@ -116,7 +164,7 @@ func processFile(config Config) error {
 			newJsonTag := strings.Join(newTagParts, ",")
 			
 			// Replace the JSON tag in the original tag string
-			newTagStr := re.ReplaceAllString(tagStr, fmt.Sprintf(`json:"%s"`, newJsonTag))
+			newTagStr := jsonTagRegex.ReplaceAllString(tagStr, fmt.Sprintf(`json:"%s"`, newJsonTag))
 			
 			// Update the tag in the AST
 			field.Tag.Value = "`" + newTagStr + "`"
